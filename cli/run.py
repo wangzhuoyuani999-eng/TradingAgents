@@ -1,9 +1,11 @@
 """Running one analysis from the CLI: build the graph, stream it into the live view, save the report."""
 
+import json
 import os
 import sys
 import time
 import webbrowser
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 
@@ -40,6 +42,56 @@ def _run_directory(config: dict, ticker: str, trade_date: str) -> Path:
     ".." here would place the run outside the results directory.
     """
     return Path(config["results_dir"]) / safe_ticker_component(ticker) / trade_date
+
+
+def _write_run_stats(
+    results_dir: Path,
+    stats: dict,
+    elapsed: float,
+    selections: dict,
+    config: dict,
+    rating: str,
+) -> None:
+    """Record what this run cost, next to the run, so a headless run stays auditable.
+
+    The live panel shows token counts only while it is on screen; a run redirected
+    to a file (or a batch of them) loses that. The same numbers go to
+    ``<ticker>/<date>/stats.json`` for the run and, one line per run, to
+    ``run_stats.jsonl`` at the results root for summing across a batch. Never
+    fatal: a run that finished is worth more than its bookkeeping.
+    """
+    tokens_in = int(stats.get("tokens_in") or 0)
+    tokens_out = int(stats.get("tokens_out") or 0)
+    record = {
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "ticker": selections["ticker"],
+        "date": selections["analysis_date"],
+        "analysts": [getattr(a, "value", a) for a in selections["analysts"]],
+        "rating": rating,
+        "llm_provider": config["llm_provider"],
+        "quick_think_llm": config["quick_think_llm"],
+        "deep_think_llm": config["deep_think_llm"],
+        "llm_calls": int(stats.get("llm_calls") or 0),
+        "tool_calls": int(stats.get("tool_calls") or 0),
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "total_tokens": tokens_in + tokens_out,
+        "elapsed_seconds": round(elapsed, 1),
+    }
+
+    console.print(
+        f"[dim]Tokens: {tokens_in:,} in / {tokens_out:,} out "
+        f"({tokens_in + tokens_out:,} total) · {record['llm_calls']} LLM calls · "
+        f"{elapsed:.0f}s[/dim]"
+    )
+    try:
+        tmp = results_dir / "stats.json.tmp"
+        tmp.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(results_dir / "stats.json")
+        with open(Path(config["results_dir"]) / "run_stats.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        console.print(f"[yellow]Could not write run stats: {exc}[/yellow]")
 
 
 def _announce_checkpoint_state(graph, ticker: str, trade_date: str) -> None:
@@ -377,13 +429,24 @@ def run_analysis(checkpoint: bool | None = None, portfolio=None, flags=None):
 
     # A decision nobody can read is not a position. Say so here rather than
     # leaving the run to look like a normal result.
-    if is_review(run_rating(final_state)):
+    rating = run_rating(final_state)
+    if is_review(rating):
         console.print(
             "[yellow]No rating could be read from the final decision, so this run "
             "is recorded for review rather than as a position. Re-run, or read the "
             "decision text below and judge it yourself.[/yellow]\n"
         )
     console.print(f"[dim]{analyst_wall_time_tracker.format_summary()}[/dim]")
+
+    # What the run cost, beside the run: the panel above is gone once it scrolls.
+    _write_run_stats(
+        results_dir,
+        stats_handler.get_stats(),
+        time.time() - start_time,
+        selections,
+        config,
+        rating,
+    )
 
     _offer_reports(final_state, graph, selections["ticker"],
                    save=flags.get("save"), show=flags.get("show"), html=flags.get("html"))

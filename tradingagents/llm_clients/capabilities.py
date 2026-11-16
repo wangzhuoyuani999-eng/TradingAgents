@@ -132,6 +132,13 @@ def get_capabilities(model_name: str) -> ModelCapabilities:
     if model_name.startswith("deepseek/"):
         model_name = model_name.removeprefix("deepseek/")
 
+    # A gateway can prefix the same official model with its own publisher name.
+    # Magpie serves Open Design's DeepSeek as ``opendesign/deepseek-v4.1-flash``;
+    # that is the model whose bare ID already suppresses tool_choice, so strip
+    # the publisher prefix rather than treating it as an unknown model.
+    if model_name.startswith("opendesign/"):
+        model_name = model_name.removeprefix("opendesign/")
+
     if model_name in _BY_ID:
         return _BY_ID[model_name]
     for pattern, caps in _BY_PATTERN:

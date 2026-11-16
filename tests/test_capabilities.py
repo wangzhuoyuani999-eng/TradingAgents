@@ -166,6 +166,27 @@ class TestOpenRouterDeepSeekNamespace:
 
 
 @pytest.mark.unit
+class TestMagpiePublisherNamespace:
+    """Magpie serves Open Design's models as ``opendesign/<id>``; strip that
+    publisher prefix so the gateway path keeps the bare model's quirks."""
+
+    def test_prefixed_v41_flash_suppresses_tool_choice(self):
+        caps = get_capabilities("opendesign/deepseek-v4.1-flash")
+        assert caps.supports_tool_choice is False
+        assert caps.requires_reasoning_content_roundtrip is True
+
+    def test_prefixed_chat_selects_deepseek_chat(self):
+        # supports_json_schema=False distinguishes _DEEPSEEK_CHAT from _DEFAULT.
+        caps = get_capabilities("opendesign/deepseek-chat")
+        assert caps.supports_tool_choice is True
+        assert caps.supports_json_schema is False
+
+    def test_other_publishers_unchanged(self):
+        # Only the Open Design publisher prefix is stripped.
+        assert get_capabilities("tngtech/deepseek-v4-flash").supports_tool_choice is True
+
+
+@pytest.mark.unit
 def test_capabilities_dataclass_is_frozen():
     """Capability rows are immutable so they can be safely shared."""
     caps = get_capabilities("deepseek-chat")
