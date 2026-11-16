@@ -43,6 +43,11 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     # relays), but it is marked key-optional in the provider registry so the CLI
     # never forces a prompt and keyless local servers still work.
     "openai_compatible": "OPENAI_COMPATIBLE_API_KEY",
+    # Open Design 聚合网关（amr-link.open-design.ai），OpenAI 兼容。
+    "open-design": "OPENDESIGN_API_KEY",
+    # Magpie 本地网关（127.0.0.1:3425），沿用 OpenAI SDK 约定的变量；
+    # 本地网关不校验 key，填什么都行。
+    "magpie": "OPENAI_API_KEY",
 }
 
 

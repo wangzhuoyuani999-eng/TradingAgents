@@ -221,3 +221,8 @@ __marimo__/
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise
 reports/
+
+# ---- 本地交易台数据（个人持仓/日志/缓存，不入库）----
+data/
+logs_ashare/
+_magpie_smoke/

@@ -41,6 +41,7 @@ def test_registry_membership():
     ("groq", "https://api.groq.com/openai/v1", NormalizedChatOpenAI, False),
     ("nvidia", "https://integrate.api.nvidia.com/v1", NormalizedChatOpenAI, False),
     ("ollama", "http://localhost:11434/v1", LocalCompatibleChatOpenAI, False),
+    ("magpie", "http://127.0.0.1:3425/v1", NormalizedChatOpenAI, False),
 ])
 def test_registry_spec(provider, base_url, chat_class, responses):
     spec = OPENAI_COMPATIBLE_PROVIDERS[provider]
@@ -56,8 +57,11 @@ def test_key_optionality():
     assert OPENAI_COMPATIBLE_PROVIDERS["openai_compatible"].key_optional is True
     assert OPENAI_COMPATIBLE_PROVIDERS["openai_compatible"].require_base_url is True
     assert OPENAI_COMPATIBLE_PROVIDERS["xai"].key_optional is False
-    # OLLAMA_BASE_URL is the only base-URL env override.
+    # Local gateways that do not check a key never force a prompt either.
+    assert OPENAI_COMPATIBLE_PROVIDERS["magpie"].key_optional is True
+    # OLLAMA_BASE_URL / MAGPIE_BASE_URL are the base-URL env overrides.
     assert OPENAI_COMPATIBLE_PROVIDERS["ollama"].base_url_env == "OLLAMA_BASE_URL"
+    assert OPENAI_COMPATIBLE_PROVIDERS["magpie"].base_url_env == "MAGPIE_BASE_URL"
 
 
 # --- a provider that signs in: its own credential, its own pinned endpoint ---------

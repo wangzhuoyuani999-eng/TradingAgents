@@ -1,0 +1,10 @@
+- insert:
+    - id: trading-desk
+      name: '@local/dsh-trading-desk'
+      config:
+        # Absolute path to the TradingAgents checkout. Leave empty to let the
+        # plugin discover the workspace that owns data/logs and data/memory.
+        workspaceRoot: ''
+        # Free cash shown next to the holdings; also written into the CLI
+        # portfolio file. Overridden per run from the panel.
+        currency: CNY

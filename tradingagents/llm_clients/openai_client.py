@@ -282,6 +282,13 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
     "chatgpt":    ProviderSpec(base_url="https://api.openai.com/v1", chat_class=ChatGPTPlanChatOpenAI,
                                use_responses_api=True, credential=_chatgpt_credential,
                                pinned_base_url=True),
+    # Open Design 聚合网关（OpenAI 兼容，固定端点，key 必填）。
+    "open-design": ProviderSpec(base_url="https://amr-link.open-design.ai/v1"),
+    # Magpie：本地 OpenAI 兼容网关，转给多个上游（Open Design 等）。默认走
+    # 本机 3425 端口，MAGPIE_BASE_URL 可指向别的实例；本地网关一般不校验 key，
+    # 所以按 key 可选处理，另给的 OPENAI_API_KEY 仍会照常发送。
+    "magpie": ProviderSpec(base_url="http://127.0.0.1:3425/v1", base_url_env="MAGPIE_BASE_URL",
+                           key_optional=True, placeholder_key="magpie"),
     # Generic endpoint: user supplies base_url; key optional (keyless local).
     "openai_compatible": ProviderSpec(
         require_base_url=True, key_optional=True, chat_class=LocalCompatibleChatOpenAI
