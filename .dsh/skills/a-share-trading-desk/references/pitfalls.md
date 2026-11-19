@@ -76,6 +76,26 @@ bar = {"date": today, "open": px, "close": px,
 **解法**：收盘后手动把当日收盘补进 `data/cache/<TICKER>-YFin-data.csv`
 （`Date/Open/High/Low/Close/Volume` 六列，日期格式 `YYYY-MM-DD 00:00:00+08:00`）。
 
+### #9 yfinance 给 A 股返回自相矛盾的 K 线（TradingAgents 侧）
+
+**现象**：2026-11-18 的 `002415.SZ` 从 yfinance 拿到
+`Open 33.75 / High 35.59 / Low 35.08 / Close 35.29` —— **开盘价低于当日最低价**，
+物理上不可能（33.75 恰好等于 11-13 的开盘价，像是索引错位）。
+LLM 尽调报告直接指出这点，并把当天的形态与量能信息作废。
+
+**根因**：`data_vendors["core_stock_apis"]` 原来是 `yfinance`，A 股 OHLCV 也走雅虎。
+
+**修法（已落地）**：
+1. `default_config.py` → `core_stock_apis = "eastmoney,yfinance"`。
+   东财对非 A 股会抛 `NoMarketDataError`，美股仍自动回退雅虎（已验证 AAPL 正常）。
+2. `yahoo/ohlcv.py` 加 `_repair_impossible_bars()`：Open/Close 超出 [Low, High] 时
+   夹进区间并打 warning（兜底，防止美股将来出现同类问题）。
+3. 清掉缓存里被污染的 11-18 行。
+
+**注意**：`get_indicators` 只有 `alpha_vantage` / `yfinance` 两家，**没有东财**，
+所以技术指标仍走雅虎。但多数指标只用 Close/High/Low/Volume，**不用 Open**，
+影响仅限形态/跳空类判断。
+
 ## 三、排错顺序
 
 数据不对时按这个顺序查，别跳步：

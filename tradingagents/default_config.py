@@ -156,7 +156,12 @@ def build_default_config() -> dict:
         # routed to vendors you didn't choose. For ordered fallback, list several,
         # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
         "data_vendors": {
-            "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
+            # A-share OHLCV goes to Eastmoney first: yfinance returns corrupt
+            # bars for .SS/.SZ (2026-11-18 002415.SZ came back with
+            # Open 33.75 while Low was 35.08 — an impossible bar that the
+            # analysts rightly discarded). Eastmoney raises for non-CN symbols,
+            # so US tickers still fall through to Yahoo.
+            "core_stock_apis": "eastmoney,yfinance",  # eastmoney covers .SS/.SZ
             "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
             # Statements come from SEC EDGAR as filed (US filers), then Yahoo; the
         # overview and insider tools, which SEC EDGAR does not serve, from Yahoo.
