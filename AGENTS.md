@@ -51,7 +51,12 @@
 - **LLM（分析模型）**：走 **本地 Magpie 网关** —— `TRADINGAGENTS_LLM_PROVIDER=magpie`，
   网关地址 `http://127.0.0.1:3425/v1`（`TRADINGAGENTS_LLM_BACKEND_URL`，也认
   `MAGPIE_BASE_URL`），key 用 `.env` 的 `OPENAI_API_KEY=magpie`（本地网关不校验，
-  不用管泄漏），模型名用网关 `/v1/models` 里的 ID（默认 `opendesign/deepseek-v4.1-flash`）。
+  不用管泄漏），模型名用网关 `/v1/models` 里的 ID。
+  当前默认 **`deepseek/deepseek-flash`**（直连 DeepSeek 官方，最稳）。
+  网关里另一条 `opendesign/deepseek-v4.1-flash` 要绕到 Open Design 云端，
+  **国内网络抖动时会直接超时**，不要在生产流程里当默认。
+  `diligence.py` 会**先 20 秒探活再开跑**，首选不通就自动切到
+  `deepseek/deepseek-flash` → `deepseek/deepseek-v4-pro`。
   回滚到 Open Design 云网关：provider 改 `open-design`、模型改 `deepseek-v4.1-flash`；
   回滚到 DeepSeek 官方直连：provider 改 `deepseek`、模型改 `deepseek-flash`。
 - **行情/K 线/报价**：`data_sources.py`（新浪列表 + 腾讯前复权日线 + 腾讯实时报价，**直连不走代理**）。
