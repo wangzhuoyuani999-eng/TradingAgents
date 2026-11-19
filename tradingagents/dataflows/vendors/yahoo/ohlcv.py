@@ -24,6 +24,50 @@ MAX_OHLCV_STALE_DAYS = 10
 OHLCV_CACHE_TTL_SECONDS = 900
 
 
+def _repair_impossible_bars(data: pd.DataFrame, canonical: str) -> pd.DataFrame:
+    """Clamp bars whose Open/Close fall outside their own High/Low.
+
+    yfinance occasionally returns a corrupt daily bar for A-shares: 002415.SZ on
+    2026-11-18 came back as Open 33.75 with High 35.59 / Low 35.08, i.e. an open
+    below the session low. Analysts reading that row correctly flagged the data
+    as self-contradictory and discarded the day. Open and Close are clamped into
+    the recorded range so the frame is at least internally consistent; the true
+    values for A-shares now come from Eastmoney, which is routed first.
+    """
+    cols = [c for c in ("Open", "High", "Low", "Close") if c in data.columns]
+    if len(cols) < 4 or data.empty:
+        return data
+
+    frame = data.copy()
+    for col in cols:
+        frame[col] = pd.to_numeric(frame[col], errors="coerce")
+
+    low = frame[["Low", "High"]].min(axis=1)
+    high = frame[["Low", "High"]].max(axis=1)
+    bad = (
+        (frame["Open"] < low) | (frame["Open"] > high)
+        | (frame["Close"] < low) | (frame["Close"] > high)
+    )
+    bad &= frame[["Open", "Close", "Low", "High"]].notna().all(axis=1)
+    if not bad.any():
+        return data
+
+    for idx in frame.index[bad]:
+        date = frame.at[idx, "Date"] if "Date" in frame.columns else idx
+        logger.warning(
+            "%s: impossible OHLC bar on %s (O=%s H=%s L=%s C=%s); clamping "
+            "Open/Close into the recorded range.",
+            canonical, date,
+            frame.at[idx, "Open"], frame.at[idx, "High"],
+            frame.at[idx, "Low"], frame.at[idx, "Close"],
+        )
+        for col in ("Open", "Close"):
+            frame.at[idx, col] = frame.at[idx, col].clip(
+                frame.at[idx, "Low"], frame.at[idx, "High"]
+            )
+    return frame
+
+
 def _ensure_date_column(data: pd.DataFrame) -> pd.DataFrame:
     """Normalize the date column to ``Date``.
 
@@ -225,6 +269,7 @@ def load_ohlcv(symbol: str, as_of_date: str, fill_gaps: bool = True) -> pd.DataF
         data = downloaded
 
     data = _clean_dataframe(data)
+    data = _repair_impossible_bars(data, canonical)
 
     # Filter to as_of_date to prevent look-ahead bias in backtesting.
     data = data[data["Date"] <= as_of_dt]

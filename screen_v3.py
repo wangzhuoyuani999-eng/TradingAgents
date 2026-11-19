@@ -75,10 +75,14 @@ def kline(code: str, limit: int = 320) -> pd.DataFrame | None:
     if "amount" not in k.columns:
         k["amount"] = k["volume"] * k["close"]
 
-    # 补当日 bar：日线最后一天 < 今天，且能拿到实时价/高低
+    # 补当日 bar：日线最后一天 < 今天，且能拿到实时价/高低。
+    # 只在盘中补——盘前/盘后 quote() 返回的是上一交易日收盘价，补进去等于重复一根 bar，
+    # 会把 MA20 和趋势分算歪。
     try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        q = ds.quote([code]).get(code)
+        now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+        in_session = (now.hour * 60 + now.minute) >= (9 * 60 + 35) and now.hour < 15
+        q = ds.quote([code]).get(code) if in_session else None
         last = str(k["date"].iloc[-1])[:10]
         if q and last < today and q["px"] > 0:
             bar = pd.DataFrame([{

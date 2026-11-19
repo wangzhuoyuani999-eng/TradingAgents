@@ -34,6 +34,9 @@
 - 仓位上限：单只不超过 65%，总仓位不超过 85%；
 - 止损用**收盘价确认制**（盘中破位不砍，收盘破位才执行），跳空跌破则在开盘执行；
 - T+1：当日买入当日不可卖，涉及卖出时先确认持仓已过夜。
+- **卖出必须整手：只能按 100 股为单位卖，不能减半、不能卖 50 股**（券商限制）。
+  因此**任何"减半/分批减仓"的建议都是不可执行的**——持仓只有 100 股时，只有"全卖"或"全留"两个选项。
+  遇到需要减仓的判断，**改用"止损上移"实现同等风险控制**，并明确说明这一点。
 
 ## 3. 每次分析输出的固定结构
 
@@ -48,7 +51,12 @@
 - **LLM（分析模型）**：走 **本地 Magpie 网关** —— `TRADINGAGENTS_LLM_PROVIDER=magpie`，
   网关地址 `http://127.0.0.1:3425/v1`（`TRADINGAGENTS_LLM_BACKEND_URL`，也认
   `MAGPIE_BASE_URL`），key 用 `.env` 的 `OPENAI_API_KEY=magpie`（本地网关不校验，
-  不用管泄漏），模型名用网关 `/v1/models` 里的 ID（默认 `opendesign/deepseek-v4.1-flash`）。
+  不用管泄漏），模型名用网关 `/v1/models` 里的 ID。
+  当前默认 **`deepseek/deepseek-flash`**（直连 DeepSeek 官方，最稳）。
+  网关里另一条 `opendesign/deepseek-v4.1-flash` 要绕到 Open Design 云端，
+  **国内网络抖动时会直接超时**，不要在生产流程里当默认。
+  `diligence.py` 会**先 20 秒探活再开跑**，首选不通就自动切到
+  `deepseek/deepseek-flash` → `deepseek/deepseek-v4-pro`。
   回滚到 Open Design 云网关：provider 改 `open-design`、模型改 `deepseek-v4.1-flash`；
   回滚到 DeepSeek 官方直连：provider 改 `deepseek`、模型改 `deepseek-flash`。
 - **行情/K 线/报价**：`data_sources.py`（新浪列表 + 腾讯前复权日线 + 腾讯实时报价，**直连不走代理**）。
