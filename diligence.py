@@ -138,8 +138,18 @@ def _run_one(ticker: str, date: str, analysts: str, timeout: int, model: str = "
             timed_out = True
 
     if timed_out:
+        # 报告可能在进程卡住之前就写完了（2026-11-19 的 603118 就是这样：
+        # decision.md 已经落盘，但进程在收尾阶段超过 900s）。先看产物再判失败。
+        late = _newest_report(ticker, date)
+        rating, summary = _parse_decision(late) if late else (None, None)
+        if rating:
+            return {"ticker": ticker, "ok": True, "rating": rating, "summary": summary,
+                    "report_dir": str(late.relative_to(ROOT)),
+                    "error": f"进程超时 >{timeout}s，但报告已生成，按已生成结果采用",
+                    "model": model,
+                    "elapsed_s": round((datetime.now() - started).total_seconds(), 1)}
         return {"ticker": ticker, "ok": False, "rating": None, "summary": None,
-                "report_dir": None, "error": f"超时 >{timeout}s（已按进程树终止）",
+                "report_dir": None, "error": f"超时 >{timeout}s，且未产出 decision.md",
                 "model": model,
                 "elapsed_s": round((datetime.now() - started).total_seconds(), 1)}
 
