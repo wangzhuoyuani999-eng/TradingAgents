@@ -77,7 +77,8 @@ def load_portfolio() -> dict:
             "cost": _num(cost),
             "stop": _num(stop),
             "target": _num(target),
-            "target_text": target.replace("**", ""),
+            "target_text": target.replace("**", "").split("（")[0].split("/")[0].strip(),
+            "target_full": target.replace("**", ""),
             "reduce_rule": reduce_rule.replace("**", ""),
         })
 
@@ -134,7 +135,11 @@ def build(args) -> str:
     quotes = ds.quote([h["symbol"] for h in book["holdings"]]) if book["holdings"] else {}
     index_quotes = ds.quote([code for code, _ in INDICES], index=True)
 
-    market_value = 0.0
+    market_value = sum(
+        (quotes.get(h["symbol"], {}).get("px") or 0) * h["qty"] for h in book["holdings"]
+    )
+    equity = (book["cash"] or 0) + market_value
+    exposure = (market_value / equity * 100) if equity else 0
     holdings_html = []
     triggers: list[str] = []
 
@@ -144,7 +149,7 @@ def build(args) -> str:
         pct = q.get("pct")
         high, low = q.get("high"), q.get("low")
         value = (price or 0) * item["qty"]
-        market_value += value
+        share = (value / equity * 100) if equity else 0
 
         pnl = None if (item["cost"] is None or price is None) else (price - item["cost"]) * item["qty"]
         to_stop = None if (item["stop"] is None or price is None) else (price / item["stop"] - 1) * 100
@@ -182,18 +187,15 @@ def build(args) -> str:
           {sparkline(closes) if closes else ''}
           <dl class="metrics">
             <div><dt>市值</dt><dd>{fmt(value)}</dd></div>
+            <div><dt>仓位占比</dt><dd>{share:.1f}%</dd></div>
             <div><dt>浮动盈亏</dt><dd>{('—' if pnl is None else signed(pnl))}</dd></div>
             <div><dt>日内</dt><dd data-range="{item['symbol']}">{fmt(low)} – {fmt(high)}</dd></div>
-            <div><dt>止损</dt><dd class="down">{fmt(item['stop'])} <small>{'' if to_stop is None else f'{to_stop:+.2f}%'}</small></dd></div>
-            <div><dt>目标</dt><dd class="up">{html.escape(item['target_text'])} <small>{'' if to_target is None else f'{to_target:+.2f}%'}</small></dd></div>
-            <div><dt>距止损</dt><dd>{'' if to_stop is None else f'{to_stop:+.2f}%'}</dd></div>
+            <div><dt>止损</dt><dd class="down" title="距止损 {'' if to_stop is None else f'{to_stop:+.2f}%'}">{fmt(item['stop'])} <small>{'' if to_stop is None else f'{to_stop:+.2f}%'}</small></dd></div>
+            <div><dt>目标</dt><dd class="up" title="{html.escape(item['target_full'])}">{html.escape(item['target_text'])} <small>{'' if to_target is None else f'{to_target:+.2f}%'}</small></dd></div>
           </dl>
           <div class="track" title="止损 → 现价 → 目标"><i style="width:{progress * 100:.1f}%"></i></div>
           <p class="rule">{html.escape(item['reduce_rule'])}</p>
         </article>""")
-
-    equity = (book["cash"] or 0) + market_value
-    exposure = (market_value / equity * 100) if equity else 0
 
     index_html = []
     for code, label in INDICES:
