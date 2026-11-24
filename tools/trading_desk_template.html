@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>交易台 · A股</title>
+<style>
+  :root{
+    --bg:#0d0f14; --panel:#151821; --panel-2:#1b1f2a; --line:#242a38;
+    --text:#e8ebf2; --muted:#8b93a7; --up:#f0453f; --down:#22a06b; --accent:#5b8cff;
+    --warn:#f5a524;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 600px at 20% -10%, #1a2130 0%, var(--bg) 55%);
+    color:var(--text); font:14px/1.6 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  main{max-width:1080px; margin:0 auto; padding:28px 20px 56px}
+  .topbar{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:22px}
+  h1{margin:0; font-size:22px; letter-spacing:.5px}
+  h1 small{display:block; font-size:12px; font-weight:400; color:var(--muted); letter-spacing:0}
+  button{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:8px;
+    padding:7px 14px; font:inherit; cursor:pointer; transition:.15s;
+  }
+  button:hover{border-color:#3a4560; background:#222838}
+  button:disabled{opacity:.6; cursor:default}
+  .muted{color:var(--muted)}
+  .up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--muted)}
+  .code{margin-left:8px; font-size:11px; color:var(--muted); font-weight:400}
+
+  .indexes{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:14px}
+  .index{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+    display:flex; flex-direction:column; gap:2px;
+  }
+  .index strong{font-size:19px; font-variant-numeric:tabular-nums}
+  .index small{font-size:11px}
+
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:22px}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px}
+  .stat span{display:block; font-size:12px; color:var(--muted)}
+  .stat strong{font-size:19px; font-variant-numeric:tabular-nums}
+
+  .status{
+    border-radius:10px; padding:10px 14px; margin-bottom:22px; font-size:13px;
+    border:1px solid var(--line); background:var(--panel); display:flex; gap:10px; align-items:center;
+  }
+  .status.ok{border-color:#1f4d3b; background:#0f1f1a; color:#7fd6b0}
+  .status.alert{border-color:#5c3a13; background:#241a0e; color:#f5b95c}
+  .dot{width:8px; height:8px; border-radius:50%; background:currentColor; flex:0 0 auto}
+
+  h2{font-size:14px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin:26px 0 12px}
+
+  .holdings{display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px}
+  .holding-head{display:flex; justify-content:space-between; align-items:flex-start; gap:12px}
+  .holding-head h3{margin:0; font-size:16px}
+  .holding-head p{margin:2px 0 0; font-size:12px}
+  .price-block{text-align:right; font-variant-numeric:tabular-nums; line-height:1.25}
+  .price-block strong{display:block; font-size:21px}
+  .price-block span{font-size:12px}
+  .spark{width:100%; height:32px; margin:10px 0 4px; display:block; opacity:.9}
+  .metrics{display:grid; grid-template-columns:repeat(3,1fr); gap:10px 12px; margin:10px 0 12px}
+  .metrics div{min-width:0}
+  .metrics dt{font-size:11px; color:var(--muted)}
+  .metrics dd{margin:0; font-size:14px; font-variant-numeric:tabular-nums; white-space:nowrap}
+  .metrics small{font-size:11px; color:var(--muted)}
+  .track{height:5px; border-radius:99px; background:linear-gradient(90deg,#22a06b 0%,#3d4457 50%,#f0453f 100%); overflow:hidden; opacity:.35}
+  .track i{display:block; height:100%; background:var(--accent); opacity:1}
+  .rule{margin:10px 0 0; font-size:12px; color:var(--muted); line-height:1.5}
+
+  table{width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  th,td{padding:10px 12px; text-align:left; font-size:13px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-size:11px; letter-spacing:.6px; color:var(--muted); text-transform:uppercase; background:var(--panel-2)}
+  tr:last-child td{border-bottom:0}
+  .badge{display:inline-block; padding:1px 8px; border-radius:99px; border:1px solid var(--line); font-size:12px}
+  footer{margin-top:28px; font-size:12px; color:var(--muted); line-height:1.7}
+  @media (max-width:720px){
+    .indexes{grid-template-columns:1fr}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .metrics{grid-template-columns:repeat(2,1fr)}
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="topbar">
+    <h1>交易台 <small>数据快照 {{STAMP}} · A股主板 · 现金/持仓以 PORTFOLIO.md 为准</small></h1>
+    <button id="refresh" title="从腾讯行情拉一次最新价">刷新行情</button>
+  </div>
+
+  <section class="indexes">{{INDEX_CARDS}}</section>
+
+  <section class="stats">
+    <div class="stat"><span>现金</span><strong>{{CASH}}</strong></div>
+    <div class="stat"><span>持仓市值</span><strong>{{MARKET_VALUE}}</strong></div>
+    <div class="stat"><span>总权益</span><strong>{{EQUITY}}</strong></div>
+    <div class="stat"><span>仓位</span><strong>{{EXPOSURE}}%</strong></div>
+  </section>
+
+  <div class="status {{TRIGGER_CLASS}}"><i class="dot"></i><span>{{TRIGGER_TEXT}}</span></div>
+
+  <h2>持仓</h2>
+  <section class="holdings">{{HOLDINGS}}</section>
+
+  <h2>候选池</h2>
+  <table>
+    <thead><tr><th>标的</th><th>买区</th><th>现价</th><th>止损</th><th>目标</th><th>状态</th></tr></thead>
+    <tbody>{{WATCHLIST}}</tbody>
+  </table>
+
+  <h2>今日分析</h2>
+  <table>
+    <thead><tr><th>标的</th><th>评级</th><th>目标价</th><th>时间框架</th></tr></thead>
+    <tbody>{{RATINGS}}</tbody>
+  </table>
+
+  <footer>
+    价格来自腾讯行情（直连），页面为静态快照；点「刷新行情」可拉最新价，但持仓/止损改动需重跑
+    <code>.venv/Scripts/python.exe tools/build_trading_desk.py</code>。<br>
+    A股配色：<span class="up">红涨</span> / <span class="down">绿跌</span>。止损为收盘确认制，盘中破位不砍。
+  </footer>
+</main>
+
+<script>
+const SYMBOLS = ["sz002415","sh600428","sh000001","sz399001","sz399006"];
+
+function applyQuote(code, text){
+  const p = text.split("~");
+  const price = parseFloat(p[3]);
+  const prev = parseFloat(p[4]);
+  if (!isFinite(price) || !isFinite(prev) || !prev) return;
+  const pct = (price / prev - 1) * 100;
+  document.querySelectorAll(`[data-quote="${code}"]`).forEach(el => {
+    el.textContent = price.toFixed(2);
+  });
+  document.querySelectorAll(`[data-pct="${code}"]`).forEach(el => {
+    el.textContent = (pct > 0 ? "+" : "") + pct.toFixed(2) + "%";
+    el.className = pct > 0 ? "up" : (pct < 0 ? "down" : "flat");
+  });
+  document.querySelectorAll(`[data-range="${code}"]`).forEach(el => {
+    el.textContent = parseFloat(p[34]).toFixed(2) + " – " + parseFloat(p[33]).toFixed(2);
+  });
+}
+
+document.getElementById("refresh").addEventListener("click", () => {
+  const btn = document.getElementById("refresh");
+  btn.disabled = true; btn.textContent = "拉取中…";
+  const s = document.createElement("script");
+  s.charset = "gbk";
+  s.src = "https://qt.gtimg.cn/q=" + SYMBOLS.join(",") + "&_=" + Date.now();
+  s.onload = () => {
+    SYMBOLS.forEach(sym => {
+      const raw = window["v_" + sym];
+      if (typeof raw === "string") applyQuote(sym.slice(2), raw);
+    });
+    btn.disabled = false; btn.textContent = "已刷新 " + new Date().toLocaleTimeString();
+  };
+  s.onerror = () => { btn.disabled = false; btn.textContent = "刷新失败，用快照"; };
+  document.head.appendChild(s);
+});
+</script>
+</body>
+</html>
