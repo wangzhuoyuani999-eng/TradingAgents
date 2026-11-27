@@ -18,6 +18,7 @@ whenToUse: 交易日需要盘前计划、盘中巡检、下单决策、收盘总
 - **一天最多买一只。**
 - **止损用收盘确认制**：盘中破位不砍，收盘确认后**下一个交易日**执行；跳空跌破则开盘执行。
 - **单笔风险 ≤ 总权益 1%**（按止损距离算）；单只 ≤65%；总仓 ≤85%。
+- **大盘总开关（2026-11-27 修订，回测背书）**：`上证收盘 > MA20` **或** `> MA200` 才允许开新仓；跌回 MA20 下方即停止开新仓（已持仓不清）。解锁后首笔按**试仓**：1 手、单笔风险 ≤0.5%，次日起转常仓。
 - **需要下单时**必须用 `## ⚠️ 需要你下单` + 表格（标的/方向/价格/数量/止损/有效期）；
   不需要就明确写「**今天不需要下单**」。
 - 持仓、现金、候选池**以 `data/trading_desk/*.json` 为准**，不要用对话里记的旧数字。
@@ -54,26 +55,36 @@ whenToUse: 交易日需要盘前计划、盘中巡检、下单决策、收盘总
 | `backtest_strata.py` | 按基本面分层的回测 | `python backtest_strata.py` |
 | `strategy_stats.py` | 实盘成交统计 vs 回测基线 | `python strategy_stats.py` |
 | `cost_ledger.py` | 分析成本台账 | `python cost_ledger.py` |
+| `tools/build_trading_desk.py` | 用 PORTFOLIO.md 生成交易台面板 | `python tools/build_trading_desk.py` |
+| `tools/news_digest.py` | **盘前消息面摘要**（隔夜外盘 + 7×24 快讯 + 个股公告） | `python tools/news_digest.py --size 400 --top 14` |
+| `tools/research_digest.py` | **券商研报摘要**（评级/目标价/卖方 EPS 预测） | `python tools/research_digest.py --days 30` |
+| `tools/feishu_push.py` | **推飞书**（DSH-IM 主动投递；有动作加 `--action`） | `python tools/feishu_push.py --label 盘中巡检 --text "..."` |
+| `tools/trade_log.py` | **实盘成交台账**（迭代计数器的数据源） | `python tools/trade_log.py add ...` / `stats` |
+| `tools/backtest_fund.py` | 基本面门槛回测（含财务时点对齐） | `python tools/backtest_fund.py --limit 150` |
 
 选股结果写入 `data/logs/screen_v3_<YYYYMMDD>.json`。
 
-## 3. 交易台读写
+## 3. 交易台读写（文件制，不用插件）
 
-用 `trading_desk_read` / `trading_desk_write` 工具，**不要直接改 JSON**。
+**本工作区不装交易台插件**，没有 `trading_desk_read` / `trading_desk_write`。持仓、现金、候选池全部记在仓库根的 `PORTFOLIO.md`；`data/trading_desk/*.json` 是插件的空壳，**不要再写**。
 
-- `view=overview|positions|watchlist|records|journal|strategies|decision`
-- `action=upsert_position|remove_position|set_cash|add_note|save_plan|save_watchlist|delete_journal`
+- 单一事实来源：`PORTFOLIO.md`（`data/` 被 .gitignore 忽略，所以放根目录）；
+- 面板：`trading_desk.html` 由 `PORTFOLIO.md` 生成，**改完必须重建**：
+  `.venv/Scripts/python.exe tools/build_trading_desk.py`
+- 写 `PORTFOLIO.md` 时保留可识别的表头字样（`标的 | 代码 | 数量 | 成本价 | 现价/收盘 | 止损 | 减仓规则 | 目标`；候选池 `标的 | 代码 | 现价 | 买区 | 止损 | 目标 | 状态`），面板按表头名解析。
 
 **成交后的固定顺序**（顺序不能乱）：
 
-1. 买入成交 → `upsert_position`（ticker/name/quantity/averagePrice/stopLoss/targetPrice）
-2. 卖出成交 → `remove_position`（清仓）或 `upsert_position`（减仓，quantity 改小、averagePrice 不变）
-3. 现金变化 → `set_cash`
-4. 当日复盘 → `add_note`（date=成交日）
-5. 次日计划 → `save_plan`（date=下一交易日）
-6. 候选池 → `save_watchlist`
+0. 每笔成交都写台账：`.venv/Scripts/python.exe tools/trade_log.py add --ticker ... --entry ... --exit ...`（迭代日志要靠「20 笔」触发复盘，不记就等于没启动计数器）
+1. 买入成交 → 持仓表加一行（标的 / 代码 / 数量 / 成本价 / 止损 / 目标），账户表扣现金
+2. 卖出成交 → 清仓就删行；减仓（≥100 股整手）就改数量、成本价不变
+3. 现金变化 → 账户表 `现金` 与 `总权益`
+4. 当日复盘 + 次日计划 → `变更记录` 补一行
+5. 候选池变动 → 重写「候选池」小节
+6. 重建面板 + 推飞书（见 `references/triggers.md` §六）
 
 ## 4. 详细流程（按需读取）
+
 
 | 需要做什么 | 读哪个文件 |
 |---|---|

@@ -226,3 +226,9 @@ reports/
 data/
 logs_ashare/
 _magpie_smoke/
+
+# ---- 本地飞书投递参数（个人 ID，不入库）----
+tools/.feishu_targets.json
+
+# ---- 临时排查脚本 ----
+/_*.py

@@ -22,19 +22,31 @@ logger = logging.getLogger(__name__)
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
-# Network timeout (seconds), consistent with the other vendors.
-REQUEST_TIMEOUT = 30
+# Network timeout (seconds). 国内直连 gamma-api.polymarket.com 经常不通，
+# 2026-11-25 用 30s 超时把整轮盘前尽调拖死（news 分析师挂在预测市面上）→ 改成快失败：
+# 4 秒连不上就认定不可用，并且本次进程内不再重试。
+REQUEST_TIMEOUT = 4
+
+# 进程内熔断：一旦判定不可用，后续调用直接返回「不可用」，不再逐个 topic 等 4 秒。
+_UNAVAILABLE = False
 
 # Default number of markets to return, ranked by traded volume.
 DEFAULT_LIMIT = 6
 
 
 def _request(path: str, params: dict) -> dict:
-    response = requests.get(
-        f"{GAMMA_BASE}/{path}", params=params, timeout=REQUEST_TIMEOUT
-    )
-    response.raise_for_status()
-    return response.json()
+    global _UNAVAILABLE
+    if _UNAVAILABLE:
+        raise requests.RequestException("polymarket marked unavailable in this run")
+    try:
+        response = requests.get(
+            f"{GAMMA_BASE}/{path}", params=params, timeout=REQUEST_TIMEOUT
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        _UNAVAILABLE = True
+        raise
 
 
 def _parse_json_list(value) -> list:

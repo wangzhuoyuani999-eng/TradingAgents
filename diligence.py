@@ -31,11 +31,16 @@ ROOT = Path(__file__).resolve().parent
 REPORTS = ROOT / "data" / "logs" / "reports"
 LOGS = ROOT / "data" / "logs"
 
+# CLI 默认把报告写到 ~/.tradingagents/logs；统一改成仓库内，父进程和子进程都要看到同一个值
+# （否则 _newest_report 在父进程里找不到刚跑出来的新目录，会退回旧报告 —— 2026-11-25 踩过）。
+os.environ.setdefault("TRADINGAGENTS_RESULTS_DIR", str(REPORTS))
+
 RATINGS = ("Buy", "Overweight", "Hold", "Underweight", "Sell")
 
 # Magpie 网关里的模型路由。opendesign/* 要绕到 Open Design 云端，
-# 网络不通时会直接超时；deepseek/* 是直连 DeepSeek 官方接口，通常更稳。
-DEFAULT_FALLBACKS = ("deepseek/deepseek-flash", "deepseek/deepseek-v4-pro")
+# 网络不通时会直接超时；auto/deepseek-* 由网关就近路由，通常更稳。
+# 老的 deepseek/deepseek-flash、deepseek/deepseek-v4-pro 在当前网关已 404。
+DEFAULT_FALLBACKS = ("auto/deepseek-v4.1-flash", "auto/deepseek-v4.1-flash-eco")
 
 
 def _probe_model(model: str, timeout: int = 20) -> tuple[bool, str]:
@@ -100,6 +105,9 @@ def _run_one(ticker: str, date: str, analysts: str, timeout: int, model: str = "
         "--save", "--no-show", "--no-html", "--no-checkpoint",
     ]
     env = dict(os.environ)
+    # CLI 默认写 ~/.tradingagents/logs；统一落到仓库 data/logs/reports，
+    # 免得报告散在用户目录、且 relative_to(ROOT) 直接崩（2026-11-25 踩过）。
+    env.setdefault("TRADINGAGENTS_RESULTS_DIR", str(ROOT / "data" / "logs" / "reports"))
     if model:
         # 探活选中的模型优先于 .env 里的配置
         env["TRADINGAGENTS_QUICK_THINK_LLM"] = model
@@ -144,7 +152,7 @@ def _run_one(ticker: str, date: str, analysts: str, timeout: int, model: str = "
         rating, summary = _parse_decision(late) if late else (None, None)
         if rating:
             return {"ticker": ticker, "ok": True, "rating": rating, "summary": summary,
-                    "report_dir": str(late.relative_to(ROOT)),
+                    "report_dir": _rel(late),
                     "error": f"进程超时 >{timeout}s，但报告已生成，按已生成结果采用",
                     "model": model,
                     "elapsed_s": round((datetime.now() - started).total_seconds(), 1)}
@@ -166,36 +174,66 @@ def _run_one(ticker: str, date: str, analysts: str, timeout: int, model: str = "
         "ok": rating is not None,
         "rating": rating,
         "summary": summary,
-        "report_dir": str(report.relative_to(ROOT)),
+        "report_dir": _rel(report),
         "error": None if rating else "decision.md 里没解析出 Rating",
         "elapsed_s": round((datetime.now() - started).total_seconds(), 1),
     }
 
 
+def _rel(path: Path) -> str:
+    """报告目录可能落在仓库外（CLI 默认 ~/.tradingagents/logs），取不到相对路径就返回绝对路径。"""
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _results_root() -> Path:
+    """CLI 实际写报告的位置。
+
+    `default_config` 的 results_dir = TRADINGAGENTS_RESULTS_DIR 或
+    ~/.tradingagents/logs，再拼 `<ticker>/<YYYY-MM-DD>`；旧版本曾用
+    `data/logs/reports/<ticker>_<date>_<time>`，两条路径都要认。
+    """
+    env = os.environ.get("TRADINGAGENTS_RESULTS_DIR")
+    if env:
+        return Path(env)
+    return Path.home() / ".tradingagents" / "logs"
+
+
 def _newest_report(ticker: str, date: str) -> Path | None:
-    """本次运行产生的报告目录：<ticker>_<dateYYYYMMDD>_<HHMMSS>，取最新的一个。"""
+    """本次运行产生的报告目录：新布局 `<root>/<ticker>/<date>` 优先，其次旧的扁平目录。"""
+    cands: list[Path] = []
+    new_layout = _results_root() / ticker / date
+    if new_layout.is_dir():
+        cands.append(new_layout)
     stem = f"{ticker}_{date.replace('-', '')}_"
-    cands = [d for d in REPORTS.glob(stem + "*") if d.is_dir()] if REPORTS.exists() else []
+    if REPORTS.exists():
+        cands.extend(d for d in REPORTS.glob(stem + "*") if d.is_dir())
     return max(cands, key=lambda d: d.stat().st_mtime) if cands else None
 
 
 def _parse_decision(report_dir: Path) -> tuple[str | None, str | None]:
-    """从 5_portfolio/decision.md 提取 Rating 与 Executive Summary。"""
-    p = report_dir / "5_portfolio" / "decision.md"
-    if not p.exists():
-        return None, None
-    text = p.read_text(encoding="utf-8", errors="replace")
+    """提取 Rating 与 Executive Summary：新布局 reports/final_trade_decision.md，
+    旧布局 5_portfolio/decision.md（两者其一有 Rating 就算成功）。"""
+    for p in (report_dir / "reports" / "final_trade_decision.md",
+              report_dir / "5_portfolio" / "decision.md"):
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
 
-    m = re.search(r"\*\*Rating\*\*\s*[:：]\s*([A-Za-z]+)", text)
-    rating = m.group(1).capitalize() if m else None
-    if rating and rating not in RATINGS:
-        rating = None
+        m = re.search(r"\*\*Rating\*\*\s*[:：]\s*([A-Za-z]+)", text)
+        rating = m.group(1).capitalize() if m else None
+        if rating and rating not in RATINGS:
+            rating = None
 
-    s = re.search(r"\*\*Executive Summary\*\*\s*[:：]\s*(.+?)(?:\n\s*\n|\Z)", text, re.S)
-    summary = re.sub(r"\s+", " ", s.group(1)).strip() if s else None
-    if summary and len(summary) > 400:
-        summary = summary[:400] + "…"
-    return rating, summary
+        s = re.search(r"\*\*Executive Summary\*\*\s*[:：]\s*(.+?)(?:\n\s*\n|\Z)", text, re.S)
+        summary = re.sub(r"\s+", " ", s.group(1)).strip() if s else None
+        if summary and len(summary) > 400:
+            summary = summary[:400] + "…"
+        if rating:
+            return rating, summary
+    return None, None
 
 
 def main() -> int:

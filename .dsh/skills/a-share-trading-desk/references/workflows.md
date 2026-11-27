@@ -11,23 +11,33 @@
 
 ### 步骤
 
-1. **隔夜外盘**（新浪直连，`Session.trust_env=False`）：
+1. **消息面（固定动作，别再现场造轮子）**：
 
-   | 标的 | 新浪代码 |
-   |---|---|
-   | 纳指100 | `gb_$ndx` |
-   | 道指 | `gb_$dji` |
-   | 标普500 | `gb_$inx` |
-   | 富时A50期货 | `hf_CHA50CFD` |
+   ```powershell
+   .\.venv\Scripts\python.exe tools\news_digest.py --size 400 --top 14
+   ```
 
-   `data_sources.quote()` 对美股代码可能返回空，此时直接用
-   `https://hq.sinajs.cn/list=<code>` + `Referer: https://finance.sina.com.cn` 手工取。
+   一次产出 `data/logs/news_<YYYYMMDD>.md`，含三块：
 
-2. **消息面**：东财 7×24 快讯
-   `https://np-weblist.eastmoney.com/comm/web/getFastNewsList`（`pageSize=200`），
-   筛出目标日期区间、与稀土/创业板/证监会/央行/中美相关的条目。
+   | 块 | 内容 | 源 |
+   |---|---|---|
+   | 隔夜外盘 | 道指/纳斯达克/纳指100/标普500/费半(SOX)/恒指/富时A50期货 | 新浪 `hq.sinajs.cn`（直连，`Referer: finance.sina.com.cn`） |
+   | 宏观快讯 | 按关键词（关税/美联储/PCE/GDP/半导体/AI/MLF/逆回购…）过滤的 7×24 快讯，**带时间戳** | 东财 `fast_news` |
+   | 个股新闻/公告 | 持仓 + 候选池每只的最近公告与相关快讯 | 东财 `announcements` + 快讯 `stockList` 匹配 |
 
-3. **持仓定位**：拉现价，算距成本、距止损、距目标。
+   **写计划时引用文件里的时间戳**；文件里没有的写「未检索到」，**绝不用模型记忆补**。
+
+   再跑一次券商研报摘要（卖方评级 / 目标价 / EPS 预测）：
+
+   ```powershell
+   .\.venv\Scripts\python.exe tools\research_digest.py --days 30
+   ```
+
+   产出 `data/logs/research_<YYYYMMDD>.md`。研报与自己的尽调结论**不一致时不要强行调和**——两套口径独立，
+   报告里分别列「卖方怎么看」和「我们怎么看」，让分歧暴露出来；没有覆盖就写「近 30 天无券商研报」。
+   （历史坑：之前每次现场写 `_tmp_news.py`，既不可追溯也容易漏项。）
+
+2. **持仓定位**：拉现价，算距成本、距止损、距目标。
 
 ### 输出结构
 
@@ -102,14 +112,15 @@
    .\.venv\Scripts\python.exe screen_v3.py --limit 400 --top 10
    ```
 2. 读 `data/logs/screen_v3_<YYYYMMDD>.json`
-3. **检查板块约束**（见 SKILL.md §0）——出现 300/301/688/689 立即报警，不写候选池
-4. 写候选池 `save_watchlist`：
-   - `buyLow = MA20 × 0.995`，`buyHigh = MA20 × 1.02`
-   - `stopLoss = MA20 × 0.97`
-   - `target = 突破位 × 1.002`
-   - `status` 一律 `待触发`（已持仓的标 `持仓`）
-5. 池子控制在 **3–6 只**：超过 6 只按总分截断，不足 3 只就如实写"今天没有合格标的"，不要为凑数降门槛。
-6. 推飞书（`label="收盘定池"`）：一句结论 + 池内表格 + 漏斗各层数字
+3. **先查数据新鲜度**：`screen_v3.py` 用腾讯前复权日线（`ds.kline_qfq`），收盘后这个接口常常要到晚上才出当天 bar，15:10 跑通常拿到 **T-1**。核对 K 线末根日期，不是今天就用 `ds.kline()`（新浪，含今日）+ `ds.quote()` 收盘价校正买区/止损/现价，并在文件里注明「已用新浪日线校正」。**绝不拿 T-1 收盘价当今天定池。**
+4. **检查板块约束**（见 SKILL.md §0）——出现 300/301/688/689 立即报警，不写候选池
+5. 写候选池**直接改 `PORTFOLIO.md` 的「候选池」小节**（没有 `save_watchlist` 这个工具；插件不装）：
+   - `买区 = MA20 × 0.995 ~ MA20 × 1.02`，`止损 = MA20 × 0.97`（收盘确认），`目标 = 突破位 × 1.002`
+   - `状态` 写「待触发」或「不追·等回踩 / 现价距 MA20 +x%」
+   - 表头保留可识别字样（`标的 | 代码 | 现价 | 买区 | 止损 | 目标 | 状态`），`build_trading_desk.py` 按表头名解析
+6. 池子控制在 **3–6 只**：超过 6 只按总分截断，不足 3 只就如实写"今天没有合格标的"，不要为凑数降门槛。
+7. 重建面板：`.venv/Scripts/python.exe tools/build_trading_desk.py`
+8. 推飞书：`.venv/Scripts/python.exe tools/feishu_push.py --label 收盘定池 --text "<一句结论 + 池内表格 + 漏斗各层数字>"`（见 triggers.md §六，必须实际执行并确认 `sent:true`）
 
 ### 漏斗结构（screen_v3.py）
 

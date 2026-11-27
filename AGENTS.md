@@ -50,16 +50,20 @@
 
 - **LLM（分析模型）**：走 **本地 Magpie 网关** —— `TRADINGAGENTS_LLM_PROVIDER=magpie`，
   网关地址 `http://127.0.0.1:3425/v1`（`TRADINGAGENTS_LLM_BACKEND_URL`，也认
-  `MAGPIE_BASE_URL`），key 用 `.env` 的 `OPENAI_API_KEY=magpie`（本地网关不校验，
-  不用管泄漏），模型名用网关 `/v1/models` 里的 ID。
-  当前默认 **`deepseek/deepseek-flash`**（直连 DeepSeek 官方，最稳）。
+  `MAGPIE_BASE_URL`），key 用 `.env` 的 `OPENAI_API_KEY=tradingagent`，
+  模型名用网关 `/v1/models` 里的 ID。
+  当前默认 **`auto/deepseek-v4.1-flash`**（deep），quick 用 `auto/deepseek-v4.1-flash-eco`。
+  注意：老的 `deepseek/deepseek-flash`、`deepseek/deepseek-v4-pro` 在当前网关已 **404**，
+  不要再写进配置。
   网关里另一条 `opendesign/deepseek-v4.1-flash` 要绕到 Open Design 云端，
   **国内网络抖动时会直接超时**，不要在生产流程里当默认。
   `diligence.py` 会**先 20 秒探活再开跑**，首选不通就自动切到
-  `deepseek/deepseek-flash` → `deepseek/deepseek-v4-pro`。
+  `auto/deepseek-v4.1-flash` → `auto/deepseek-v4.1-flash-eco`。
   回滚到 Open Design 云网关：provider 改 `open-design`、模型改 `deepseek-v4.1-flash`；
   回滚到 DeepSeek 官方直连：provider 改 `deepseek`、模型改 `deepseek-flash`。
 - **行情/K 线/报价**：`data_sources.py`（新浪列表 + 腾讯前复权日线 + 腾讯实时报价，**直连不走代理**）。
+- **消息面**：`tools/news_digest.py` —— 隔夜外盘（新浪：道指/纳指/纳指100/标普/费半/A50期货/恒指）+ 东财 7×24 快讯（关键词过滤）+ 持仓与候选的个股公告/快讯，输出 `data/logs/news_<YYYYMMDD>.md`。
+  盘前必须跑一次、引用文件里的时间戳；**文件里没有的写「未检索到」，绝不用模型记忆补**。
 - 财务（净利/营收/ROE/毛利率）：东财 F10 接口（需要代理，失败则跳过基本面门槛）。
 - 分析结果：`data/logs/reports/<ticker>_<日期>_<时间>/`；分析统计：`data/logs/run_stats.jsonl`。
 - 价格缓存：`data/cache/<TICKER>-YFin-data.csv`，每日收盘后补当日 K 线。

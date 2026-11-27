@@ -146,3 +146,12 @@ LLM 尽调报告直接指出这点，并把当天的形态与量能信息作废�
 
 **换模型只改 `.env` 三行**，代码不用动。
 `deepseek-v4-pro` 更强但慢约 65%、token 少一半——适合关键决策前复核，不适合日常巡检。
+
+## 六、盘前尽调（07:00）踩过的坑（2026-11-25）
+
+| 症状 | 真因 | 处置 |
+|---|---|---|
+| `diligence.py` 跑 7 分钟后 `ok=false`，stderr 里是 `Polymarket search failed ... ConnectTimeout` | news 分析师的预测市场工具直连 Polymarket，国内网络不通，原来 30s 超时 ×N 把整轮拖死 | **已修（2026-11-25 晚）**：`polymarket.py` 改成 4s 快失败 + 进程内熔断（首个 topic 最多 ~8s，后续 0s），news 分析师**已恢复**（`--analysts market,news,fundamentals`）；消息面另有固化脚本 `tools/news_digest.py` |
+| 探活两次都 `TimeoutError (20.0s)`，直接判「没有可用模型」 | 网关偶发 20s 抖动（实测同一时刻 `/v1/models` 与 `/chat/completions` 都正常，2s 返回） | `--no-probe` 跳过探活再跑一次；不要把一次探活超时当成网关挂了 |
+| 分析成功但脚本崩：`ValueError: '...\.tradingagents\logs\600885.SS\2026-11-25' is not in the subpath of ...` | CLI 默认把报告写 `~/.tradingagents/logs`，脚本硬 `relative_to(ROOT)` | 已修：脚本默认 `TRADINGAGENTS_RESULTS_DIR=<repo>/data/logs/reports`，且 `_rel()` 兼容仓库外路径；历史报告可手工拷进 `data/logs/reports/<TICKER>_<日期>_<时间>` |
+| 尽调还没跑完就先把「等回踩买入」推去飞书，结果几分钟后被 Underweight 打脸 | 流程顺序错：结论要等尽调回来再写/再推 | **先把尽调跑完拿到评级，再写 PORTFOLIO.md、再重建面板、再推送**；已推错的要补一条「更正」 |

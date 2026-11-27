@@ -56,6 +56,23 @@ def _rows(table: list[str]) -> list[list[str]]:
     return parsed[1:] if parsed else []
 
 
+def _header_and_rows(markdown: str, heading: str) -> tuple[list[str], list[list[str]]]:
+    """按小节取表头 + 数据行；按表头名取列，避免 Markdown 列序变动导致字段错位。"""
+    table = _section_table(markdown, heading)
+    parsed = [[cell.strip() for cell in row.strip("|").split("|")] for row in table]
+    parsed = [r for r in parsed if not all(set(c) <= set("-: ") for c in r if c)]
+    if not parsed:
+        return [], []
+    return parsed[0], parsed[1:]
+
+
+def _cell(row: list[str], header: list[str], *keys: str) -> str:
+    for i, cell in enumerate(header):
+        if any(k in cell for k in keys):
+            return row[i] if i < len(row) else ""
+    return ""
+
+
 def load_portfolio() -> dict:
     markdown = PORTFOLIO.read_text(encoding="utf-8")
 
@@ -65,32 +82,44 @@ def load_portfolio() -> dict:
             cash = _num(row[1])
 
     holdings = []
-    for row in _rows(_section_table(markdown, "## 持仓与止损止盈")):
-        if len(row) < 8:
+    h_head, h_rows = _header_and_rows(markdown, "## 持仓与止损止盈")
+    for row in h_rows:
+        name = _cell(row, h_head, "标的", "名称")
+        code = _cell(row, h_head, "代码")
+        if not name or not code:
             continue
-        name, code, qty, cost, _, stop, reduce_rule, target = row[:8]
+        # 空仓时 PORTFOLIO 用「— | — | 0 | …」占位，别把占位行当成持仓渲染出来
+        if set(name.replace("**", "")) <= set("—- ") or set(code.replace("**", "")) <= set("—- "):
+            continue
+        stop = _num(_cell(row, h_head, "止损"))
+        target = _cell(row, h_head, "目标")
         holdings.append({
             "name": name.replace("**", ""),
             "code": code.replace("**", ""),
             "symbol": code.split(".")[0].replace("**", ""),
-            "qty": int(_num(qty) or 0),
-            "cost": _num(cost),
-            "stop": _num(stop),
+            "qty": int(_num(_cell(row, h_head, "数量")) or 0),
+            "cost": _num(_cell(row, h_head, "成本")),
+            "stop": stop,
             "target": _num(target),
             "target_text": target.replace("**", "").split("（")[0].split("/")[0].strip(),
             "target_full": target.replace("**", ""),
-            "reduce_rule": reduce_rule.replace("**", ""),
+            "reduce_rule": _cell(row, h_head, "减仓", "规则").replace("**", ""),
         })
 
     watchlist = []
-    for row in _rows(_section_table(markdown, "## 候选池")):
-        if len(row) < 7:
+    w_head, w_rows = _header_and_rows(markdown, "## 候选池")
+    for row in w_rows:
+        name = _cell(row, w_head, "标的", "名称")
+        code = _cell(row, w_head, "代码")
+        if not name or not code:
             continue
-        name, code, band, stop, target, price, status = row[:7]
         watchlist.append({
-            "name": name, "code": code, "band": band.replace("**", ""),
-            "stop": _num(stop), "target": _num(target), "price": _num(price),
-            "status": status.replace("**", ""),
+            "name": name.replace("**", ""), "code": code.replace("**", ""),
+            "band": _cell(row, w_head, "买区", "买点").replace("**", ""),
+            "stop": _num(_cell(row, w_head, "止损")),
+            "target": _num(_cell(row, w_head, "目标")),
+            "price": _num(_cell(row, w_head, "现价", "收盘")),
+            "status": _cell(row, w_head, "状态").replace("**", ""),
         })
 
     ratings = []
@@ -230,6 +259,14 @@ def build(args) -> str:
     trigger_class = "ok" if not triggers else "alert"
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # 刷新按钮的代码列表跟着 PORTFOLIO.md 走，换仓后不用改模板
+    symbols: list[str] = []
+    for item in book["holdings"]:
+        prefix = "sh" if item["symbol"].startswith(("6", "9")) else "sz"
+        symbols.append(prefix + item["symbol"])
+    symbols += ["sh000001", "sz399001", "sz399006"]
+    symbols_js = "[" + ",".join(f'"{s}"' for s in symbols) + "]"
+
     template = (ROOT / "tools" / "trading_desk_template.html").read_text(encoding="utf-8")
     return (template
             .replace("{{STAMP}}", stamp)
@@ -242,7 +279,8 @@ def build(args) -> str:
             .replace("{{WATCHLIST}}", watch_html or '<tr><td colspan="6" class="muted">候选池为空</td></tr>')
             .replace("{{RATINGS}}", rating_html or '<tr><td colspan="4" class="muted">今日无分析记录</td></tr>')
             .replace("{{TRIGGER_TEXT}}", html.escape(trigger_text))
-            .replace("{{TRIGGER_CLASS}}", trigger_class))
+            .replace("{{TRIGGER_CLASS}}", trigger_class)
+            .replace("{{SYMBOLS}}", symbols_js))
 
 
 def main() -> None:
