@@ -155,3 +155,25 @@ LLM 尽调报告直接指出这点，并把当天的形态与量能信息作废�
 | 探活两次都 `TimeoutError (20.0s)`，直接判「没有可用模型」 | 网关偶发 20s 抖动（实测同一时刻 `/v1/models` 与 `/chat/completions` 都正常，2s 返回） | `--no-probe` 跳过探活再跑一次；不要把一次探活超时当成网关挂了 |
 | 分析成功但脚本崩：`ValueError: '...\.tradingagents\logs\600885.SS\2026-11-25' is not in the subpath of ...` | CLI 默认把报告写 `~/.tradingagents/logs`，脚本硬 `relative_to(ROOT)` | 已修：脚本默认 `TRADINGAGENTS_RESULTS_DIR=<repo>/data/logs/reports`，且 `_rel()` 兼容仓库外路径；历史报告可手工拷进 `data/logs/reports/<TICKER>_<日期>_<时间>` |
 | 尽调还没跑完就先把「等回踩买入」推去飞书，结果几分钟后被 Underweight 打脸 | 流程顺序错：结论要等尽调回来再写/再推 | **先把尽调跑完拿到评级，再写 PORTFOLIO.md、再重建面板、再推送**；已推错的要补一条「更正」 |
+
+## 七、上游 TradingAgents 已转 TypeScript：**不要整库 merge**
+
+2026-11-27 核查（`git fetch https://github.com/TauricResearch/TradingAgents.git main`）：
+
+| 项 | 上游现状 |
+|---|---|
+| 最新提交 | `121265d release: TradingAgents 1.0.1` |
+| 顶层结构 | `src/`、`package.json`、`tsconfig*.json`、`biome.json` —— **TypeScript 重写** |
+| 关键事实 | **`tradingagents/`（Python 包）已从上游删除**（`git ls-tree FETCH_HEAD:tradingagents` → not a valid object） |
+| 与本地关系 | 本地 0.7.1 + 16 个本地提交；上游在 v0.7.1 之后只有 3 个提交，全是 1.0/TS 线 |
+
+**结论**：所谓「更新 TradingAgents」在本仓库里**等于换技术栈**，不是升级。整库 merge 会删掉：
+
+- `tradingagents/` 全部 Python 代码（我们所有脚本 import 的依赖）；
+- 我们对 `polymarket.py`（快失败 + 熔断）、`diligence.py`（报告目录）的补丁；
+- `.env` 里的 Magpie 网关配置（`TRADINGAGENTS_LLM_PROVIDER=magpie`）与 A 股 vendor（东财/腾讯/新浪）——**上游没有这些**。
+
+**该怎么做**：
+1. **本仓库保持 0.7.1 + 本地补丁**，依赖只做 patch/minor 升级，升级后必须跑 smoke：`import tradingagents` + `tradingagents --help` + `diligence.py --help` + 一次 `ds.quote()`；
+2. 想用 1.0 的 TS 版 → **另开独立目录并行**（Node 环境、重接 LLM 网关与 A 股数据源），不要把两套塞进一个仓库；
+3. 版本快照见仓库根 `requirements.lock`（`pip freeze`，92 个包），回滚时据此对齐。
